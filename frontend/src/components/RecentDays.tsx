@@ -57,15 +57,15 @@ export const RecentDays: React.FC<RecentDaysProps> = ({ selectedDate, onSelectDa
         {days.map((day) => {
           const date = parseLocalDateString(day);
           const entry = historyEnd === endDate ? history?.series.find((item) => item.date === day) : undefined;
-          const status = error ? 'goal status unavailable' : !entry ? 'goal status loading' : !entry.meal_count ? 'no meals logged' : entry.meeting_goals ? 'calorie and protein goals met' : 'both goals not yet met';
+          const status = error ? 'protein goal status unavailable' : !entry ? 'protein goal status loading' : !entry.meal_count ? 'no meals logged' : entry.protein_met ? 'protein goal met' : 'protein goal not yet met';
           return <button type="button" key={day} className={`week-day ${selectedDate === day ? 'is-selected' : ''}`} aria-pressed={selectedDate === day} aria-label={`${formatLongDate(day)}${day === today ? ', today' : ''}, ${status}`} title={status} onClick={() => onSelectDate(day)}>
             <span>{day === today ? 'Today' : date.toLocaleDateString(undefined, { weekday: 'short' })}</span>
             <strong>{date.getDate()}</strong>
-            <i aria-hidden="true" className={`week-status ${entry?.meal_count ? (entry.meeting_goals ? 'is-met' : 'is-logged') : ''}`} />
+            <i aria-hidden="true" className={`week-status ${entry?.meal_count ? (entry.protein_met ? 'is-met' : 'is-logged') : ''}`} />
           </button>;
         })}
       </div>
-      <div className="week-legend">{error ? <button type="button" onClick={() => setRetry((n) => n + 1)}>Goals unavailable · Retry</button> : <><i className="week-status is-met" /> Both goals met</>}</div>
+      {error && <div className="week-legend"><button type="button" onClick={() => setRetry((n) => n + 1)}>Protein goal status unavailable · Retry</button></div>}
     </section>
   );
 };
