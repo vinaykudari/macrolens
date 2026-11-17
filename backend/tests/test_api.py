@@ -1801,6 +1801,14 @@ def test_apple_shortcuts_health_sync_bridge(client: TestClient) -> None:
     assert body_1["total_calories"] == 490
     assert body_1["total_protein_g"] == 42
 
+    # A UTC meal near midnight retains its actual Los Angeles calendar day.
+    pacific = client.get(
+        "/api/shortcuts/health-sync",
+        params={"token": shortcut_token, "date": "2026-11-16", "tz_offset_minutes": 480},
+    )
+    assert pacific.status_code == 200
+    assert pacific.json()["meals"][1]["logged_at"].startswith("2026-11-16T13:00:00-08:00")
+
     # Reading does not acknowledge meals. Each acknowledgment follows the Health writes.
     still_pending = client.get(
         "/api/shortcuts/health-sync",
@@ -1989,3 +1997,19 @@ def test_production_spa_static_serving(
     api_404 = client.get("/api/unknown")
     assert api_404.status_code == 404
     assert api_404.json() == {"detail": "Not Found"}
+
+
+def test_shortcut_sync_uses_local_date_for_evening_meal(client: TestClient) -> None:
+    auth = _signup_user(client, email="shortcut-timezone@example.com", pin="1234")
+    headers = _auth_headers(auth["access_token"])
+    token = client.post("/api/shortcuts/token", headers=headers).json()["token"]
+    meal = client.post("/api/meals", headers=headers, json={
+        "meal_name": "Evening meal", "logged_at": "2026-11-17T02:30:00Z",
+        "calories": 100, "protein_g": 5, "carbs_g": 10, "fat_g": 3,
+    })
+    assert meal.status_code == 201
+    response = client.get("/api/shortcuts/health-sync", params={
+        "token": token, "date": "2026-11-16", "tz_offset_minutes": 480,
+    })
+    assert response.status_code == 200
+    assert response.json()["meals"][0]["logged_at"] == "2026-11-16T18:30:00-08:00"

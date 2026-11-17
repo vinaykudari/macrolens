@@ -1358,11 +1358,21 @@ def get_shortcuts_health_sync(
     unsynced_entries = [entry for entry in entries if entry.synced_to_health_at is None]
     selected_entries = unsynced_entries if unsynced_only else entries
 
+    # Give Shortcuts a local offset rather than a UTC timestamp. Its date detector
+    # can otherwise assign an evening meal to the following local day.
+    if tz_offset_minutes is not None:
+        shortcut_timezone = timezone(-timedelta(minutes=tz_offset_minutes))
+    else:
+        try:
+            shortcut_timezone = ZoneInfo(user.reminder_timezone or "UTC")
+        except ZoneInfoNotFoundError:
+            shortcut_timezone = timezone.utc
+
     items = [
         ShortcutHealthMealItem(
             id=entry.id,
             meal_name=entry.meal_name,
-            logged_at=entry.logged_at,
+            logged_at=entry.logged_at.astimezone(shortcut_timezone),
             calories=round(entry.calories, 1),
             protein_g=round(entry.protein_g, 1),
             carbs_g=round(entry.carbs_g, 1),
