@@ -3538,32 +3538,25 @@ nav.desktop-nav .btn-secondary {
 .sheet-log-date { margin-top: 3px; color: var(--text-secondary); font-size: .76rem; }
 .settings-target-hint { margin: 0; color: var(--text-secondary); font-size: .8rem; }
 
-/* Recent days on the home page */
-.recent-days { padding: 20px; min-width: 0; }
-.recent-days-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 16px; }
-.recent-days-eyebrow { display: flex; align-items: center; gap: 6px; color: var(--pro-text); font-size: .65rem; font-weight: 800; letter-spacing: .12em; }
-.recent-days-header h2 { margin: 6px 0 3px; font-size: 1.2rem; letter-spacing: -.025em; }
-.recent-days-header p, .recent-days-footnote { color: var(--text-secondary); font-size: .75rem; line-height: 1.45; margin: 0; }
-.recent-days-summary { display: flex; flex-direction: column; align-items: flex-end; color: var(--text-secondary); text-align: right; font-size: .7rem; line-height: 1.3; }
-.recent-days-summary strong { color: var(--text-primary); font-size: 1.25rem; }
-.recent-days-summary strong span { color: var(--text-muted); font-size: .85rem; }
-.recent-days-list { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 8px; overflow-x: auto; padding: 2px 2px 8px; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
-.recent-day { display: flex; flex-direction: column; align-items: stretch; gap: 10px; min-height: 168px; padding: 12px; border: 1px solid var(--border-medium); border-radius: 13px; background: var(--fill-1); color: var(--text-primary); text-align: left; cursor: pointer; font: inherit; transition: border-color .15s, background .15s; }
-.recent-day:hover { background: var(--fill-2); border-color: var(--border-strong); }
-.recent-day:focus-visible { outline: 2px solid var(--pro-1); outline-offset: 2px; }
-.recent-day.is-selected { background: rgba(30, 232, 192, .07); border-color: var(--pro-border); box-shadow: inset 0 0 0 1px var(--pro-border); }
-.recent-day-date { display: flex; flex-direction: column; gap: 2px; font-size: .7rem; color: var(--text-secondary); }
-.recent-day-date strong { color: var(--text-primary); font-size: .9rem; }
-.recent-day-metric { display: flex; flex-direction: column; gap: 2px; font-size: .82rem; font-weight: 700; line-height: 1.2; white-space: nowrap; }
-.recent-day-metric small { color: var(--text-secondary); font-size: .65rem; font-weight: 500; }
-.recent-day-metric b { font-size: .65rem; font-weight: 700; }
-.recent-day-metric .is-met { color: var(--status-met-text); }
-.recent-day-metric .is-other { color: var(--text-secondary); }
-.recent-day-empty { color: var(--text-muted); font-size: .75rem; line-height: 1.4; }
-.recent-day-link { display: flex; align-items: center; gap: 4px; margin-top: auto; color: var(--text-secondary); font-size: .65rem; }
-.recent-day.is-selected .recent-day-link { color: var(--pro-text); }
-.recent-days-footnote { margin-top: 8px; }
-.recent-days-message { padding: 18px 0; color: var(--text-secondary); font-size: .85rem; }
-.recent-days-message button { color: var(--pro-text); background: none; border: 0; text-decoration: underline; cursor: pointer; font: inherit; }
-@media (min-width: 900px) { .recent-days { grid-column: 1 / -1; } }
-@media (max-width: 639px) { .recent-days { padding: 16px; } .recent-days-list { grid-template-columns: repeat(7, 120px); margin-right: -16px; padding-right: 16px; } .recent-days-header { align-items: flex-start; } .recent-days-summary { max-width: 105px; } }
+
+/* Compact date and goal selector */
+.week-nav { padding: 8px 10px 9px; }
+.week-nav-header { display: flex; align-items: center; justify-content: space-between; }
+.week-nav-header .icon-btn { width: 36px; height: 36px; }
+.week-nav-center { display: flex; align-items: center; gap: 8px; }
+.week-date-picker { position: relative; display: flex; align-items: center; gap: 7px; color: var(--text-primary); font-size: .8rem; font-weight: 700; cursor: pointer; }
+.week-date-picker svg { color: var(--text-secondary); }
+.week-date-picker input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.week-date-picker:focus-within { outline: 2px solid var(--pro-1); outline-offset: 4px; border-radius: 3px; }
+.week-today { border: 0; padding: 3px 6px; border-radius: 6px; background: var(--fill-2); color: var(--pro-text); font: inherit; font-size: .7rem; cursor: pointer; }
+.week-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.week-day { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px 0; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .65rem; }
+.week-day strong { color: var(--text-primary); font-size: .9rem; line-height: 1; }
+.week-day:hover { background: var(--fill-2); }
+.week-day.is-selected { background: var(--pro-bg); border-color: var(--pro-border); color: var(--pro-text); }
+.week-day:focus-visible { outline: 2px solid var(--pro-1); outline-offset: 1px; }
+.week-status { display: inline-block; width: 6px; height: 6px; flex: 0 0 6px; border: 1px solid var(--text-muted); border-radius: 50%; }
+.week-status.is-met { background: var(--status-met-text); border-color: var(--status-met-text); }
+.week-status.is-logged { background: var(--text-muted); }
+.week-legend { display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: 5px; color: var(--text-secondary); font-size: .65rem; }
+.week-legend button { border: 0; background: transparent; color: var(--text-secondary); font: inherit; text-decoration: underline; cursor: pointer; }

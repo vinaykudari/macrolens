@@ -522,8 +522,8 @@ export const App: React.FC = () => {
       <main className="app-main">
         {activeTab === 'dashboard' && (
           <div className="dashboard-layout">
-            <RecentDays selectedDate={selectedDate} onSelectDate={setSelectedDate} refreshKey={refreshKey} />
             <div className="dashboard-left">
+              <RecentDays selectedDate={selectedDate} onSelectDate={setSelectedDate} refreshKey={refreshKey} />
               {dashboardError && (
                 <div className="error-box" role="alert">
                   <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
@@ -533,7 +533,6 @@ export const App: React.FC = () => {
 
               <DashboardHero
                 selectedDate={selectedDate}
-                onChangeDate={(next) => setSelectedDate(next)}
                 dashboard={dashboard?.date === selectedDate ? dashboard : null}
                 loading={loadingDashboard || (!dashboardError && dashboard?.date !== selectedDate)}
               />
