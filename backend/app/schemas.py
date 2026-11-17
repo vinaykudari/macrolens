@@ -317,10 +317,18 @@ class MealTextAnalyzeRequest(BaseModel):
         return _validate_trimmed_text(v, field_name="description", min_length=2)
 
 
+class MealRefineContext(BaseModel):
+    meal_name: str = Field(..., min_length=1, max_length=255)
+    notes: str = Field(default="", max_length=2000)
+    items: list[MealItem] = Field(default_factory=list, max_length=100)
+    total: MacroTotals
+
+
 class MealRefineRequest(BaseModel):
     """Natural-language instruction to refine an existing meal's items and macros."""
 
     instruction: str = Field(..., min_length=2, max_length=1000)
+    current: MealRefineContext | None = None
 
     @field_validator("instruction")
     @classmethod

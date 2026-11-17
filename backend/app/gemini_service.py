@@ -129,6 +129,7 @@ def build_meal_text_prompt(description: str) -> str:
 
 GEMINI_REFINE_SYSTEM_INSTRUCTION = """You are an expert sports nutritionist updating an existing logged meal based on a user's natural-language correction.
 Apply the user's requested change precisely while preserving unmodified items from the current meal.
+When a photo is supplied, use it as visual context for the original meal. The user's correction and current meal state take precedence over the photo, including food the user says was not eaten.
 
 Follow these rules strictly:
 1. Preserve & modify cleanly:
@@ -828,6 +829,8 @@ def refine_meal_from_text(
     current_notes: str,
     instruction: str,
     current_totals: dict[str, float] | None = None,
+    image_bytes: bytes | None = None,
+    image_mime_type: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
 ) -> dict[str, Any]:
@@ -841,6 +844,8 @@ def refine_meal_from_text(
             instruction=instruction,
             current_totals=current_totals,
         ),
+        image_bytes=image_bytes,
+        mime_type=image_mime_type,
         api_key=api_key,
         model=model,
     )

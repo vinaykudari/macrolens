@@ -14,7 +14,6 @@ import {
   MessageSquareText,
   Plus,
   RotateCcw,
-  Ruler,
   Sparkles,
   Trash2,
   X,
@@ -57,20 +56,11 @@ interface SnapMealSheetProps {
 
 const MULTIPLIERS = [0.5, 0.75, 1, 1.5, 2] as const;
 
-const REFERENCE_CHIPS = [
-  { label: 'Auto', value: '' },
-  { label: 'Spoon', value: 'spoon' },
-  { label: 'Phone', value: 'phone' },
-  { label: 'Hand', value: 'hand' },
-  { label: 'Nutrition Label', value: 'nutrition label' },
-];
-
 const QUICK_NOTE_CHIPS = [
   'oat milk latte',
   'black iced coffee',
   'ate half',
   'cooked in oil',
-  'spoon for scale',
 ];
 
 function appendTranscript(prev: string, spoken: string): string {
@@ -126,7 +116,6 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [note, setNote] = useState<string>('');
-  const [referenceHint, setReferenceHint] = useState<string>('');
   const [isDragging, setIsDragging] = useState<boolean>(false);
 
   // Text describe state
@@ -238,7 +227,6 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
     setSelectedFile(null);
     setPreviewUrl(null);
     setNote('');
-    setReferenceHint('');
     setDescription('');
     setAnalysis(null);
     setAnalysisSource('photo');
@@ -308,7 +296,7 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
       const result = await apiClient.analyzeMeal({
         image: selectedFile,
         note: note.trim(),
-        referenceHint: referenceHint.trim(),
+        referenceHint: '',
       });
       applyAnalysisResult(result, 'photo', note.trim());
     } catch (err) {
@@ -760,7 +748,7 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                       <div className="scan-beam" />
                       <Loader2 size={28} className="spin" color="var(--pro-1)" />
                       <div className="analyzing-title">
-                        Analyzing meal &amp; scale...
+                        Analyzing meal...
                       </div>
                       <div className="analyzing-sub">
                         Estimating portions, ingredients &amp; macros
@@ -770,38 +758,11 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                 </div>
               )}
 
-              <details className="photo-options">
-                <summary>Photo details and date <span>Optional</span></summary>
-              <div className="photo-options-content">
-              <div className="tip-callout">
-                <Ruler size={18} className="tip-callout-icon" />
-                <span>
-                  Include a spoon, phone, or hand anywhere in frame for portion
-                  scale—or snap a nutrition label
-                </span>
-              </div>
-
-              <div className="field">
-                <span className="field-label">Reference object</span>
-                <div className="chip-row">
-                  {REFERENCE_CHIPS.map((ref) => (
-                    <button
-                      key={ref.label}
-                      type="button"
-                      className={`chip ${referenceHint === ref.value ? 'is-active' : ''}`}
-                      onClick={() => setReferenceHint(ref.value)}
-                    >
-                      {ref.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <div className="prompt-card">
                 <div className="prompt-card-head">
                   <label htmlFor="snap-photo-context" className="prompt-card-title">
                     <MessageSquareText size={13} className="text-pro shrink-0" />
-                    <span>Add context</span>
+                    <span>Meal description</span>
                     <span className="prompt-optional-tag">Optional</span>
                   </label>
                   <VoiceDictateButton
@@ -837,6 +798,9 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                 </div>
               </div>
 
+              <details className="photo-options">
+                <summary>Date and time <span>Optional</span></summary>
+              <div className="photo-options-content">
               <div className="form-grid-2">
                 <label className="field">
                   <span className="field-label">
@@ -1132,13 +1096,6 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                 )}
                 <div className="flex-1 stack-sm">
                   <div className="analysis-badges-row">
-                    {analysisSource === 'photo' &&
-                      isRealRef(analysis.detected_reference) && (
-                        <span className="ref-badge">
-                          <Ruler size={12} />
-                          <span>Scale: {analysis.detected_reference}</span>
-                        </span>
-                      )}
                     {analysisSource === 'text' && (
                       <span className="ref-badge">
                         <Sparkles size={12} />

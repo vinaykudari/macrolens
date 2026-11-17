@@ -829,17 +829,20 @@ def refine_meal(
 ) -> MealAnalysisResponse:
     """Refine an existing meal's items and macros from a plain-text change description."""
     meal = _get_user_meal_or_404(db, current_user.id, meal_id)
+    current = payload.current
     refined = refine_meal_from_text(
-        meal_name=meal.meal_name,
-        current_items=list(meal.items or []),
-        current_notes=meal.notes,
-        current_totals={
+        meal_name=current.meal_name if current else meal.meal_name,
+        current_items=[item.model_dump() for item in current.items] if current else list(meal.items or []),
+        current_notes=current.notes if current else (meal.notes or ""),
+        current_totals=current.total.model_dump() if current else {
             "calories": meal.calories,
             "protein_g": meal.protein_g,
             "carbs_g": meal.carbs_g,
             "fat_g": meal.fat_g,
         },
         instruction=payload.instruction,
+        image_bytes=bytes(meal.photo_data) if meal.photo_data else None,
+        image_mime_type=meal.photo_mime_type or "image/jpeg" if meal.photo_data else None,
     )
     if refined.get("detected_reference") is None and meal.detected_reference:
         refined["detected_reference"] = meal.detected_reference

@@ -123,7 +123,12 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
     setError(null);
     setRefining(true);
     try {
-      const refined = await apiClient.refineMeal(meal.id, trimmed);
+      const refined = await apiClient.refineMeal(meal.id, trimmed, {
+        meal_name: mealName.trim() || meal.meal_name,
+        notes,
+        items,
+        total: { calories: Number(calories) || 0, protein_g: Number(protein) || 0, carbs_g: Number(carbs) || 0, fat_g: Number(fat) || 0 },
+      });
       const nextItems = Array.isArray(refined.items) ? refined.items : [];
       const cal = Number(refined.total?.calories) || 0;
       const pro = Number(refined.total?.protein_g) || 0;
@@ -341,7 +346,7 @@ export const EditMealModal: React.FC<EditMealModalProps> = ({
               id="edit-refine-input"
               className="prompt-textarea"
               rows={2}
-              placeholder='e.g. "actually ate 2 eggs instead of 3" or "added 1 banana and 1 tbsp peanut butter"'
+              placeholder='e.g. "I did not eat the potatoes" or "I ate half the rice"'
               value={instruction}
               onChange={(e) => setInstruction(e.target.value)}
               disabled={refining || saving}

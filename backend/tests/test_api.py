@@ -2013,3 +2013,31 @@ def test_shortcut_sync_uses_local_date_for_evening_meal(client: TestClient) -> N
     })
     assert response.status_code == 200
     assert response.json()["meals"][0]["logged_at"] == "2026-11-16T18:30:00-08:00"
+
+
+def test_refine_uses_owned_photo_and_current_draft(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from PIL import Image
+
+    owner = _signup_user(client, email="refine-photo@example.com")
+    headers = _auth_headers(owner["access_token"])
+    meal = client.post("/api/meals", headers=headers, json={"meal_name": "Dinner", "source": "photo", "calories": 500}).json()
+    image = io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(image, format="PNG")
+    uploaded = client.post(f"/api/meals/{meal['id']}/photo", headers=headers, files={"image": ("meal.png", image.getvalue(), "image/png")})
+    assert uploaded.status_code == 200
+    draft = {"meal_name": "Dinner revised", "notes": "ate half", "items": [{"name": "potatoes", "calories": 100, "protein_g": 2, "carbs_g": 20, "fat_g": 1}], "total": {"calories": 300, "protein_g": 10, "carbs_g": 40, "fat_g": 8}}
+    captured = {}
+    def fake_raw(**kwargs):
+        captured.update(kwargs)
+        return json.dumps({"meal_name": "Dinner revised", "detected_reference": None, "confidence": "medium", "notes": "Removed potatoes", "total": {"calories": 200, "protein_g": 8, "carbs_g": 20, "fat_g": 7}, "items": []})
+    monkeypatch.setattr(gemini_service, "_call_gemini_raw", fake_raw)
+    response = client.post(f"/api/meals/{meal['id']}/refine", headers=headers, json={"instruction": "I did not eat potatoes", "current": draft})
+    assert response.status_code == 200, response.text
+    assert captured["media_bytes"] == client.get(f"/api/meals/{meal['id']}/photo", headers=headers).content
+    assert captured["mime_type"] == "image/jpeg"
+    assert 'Dinner revised' in captured["prompt"] and 'ate half' in captured["prompt"]
+    assert 'potatoes' in captured["prompt"] and '300.0' in captured["prompt"]
+    assert 'I did not eat potatoes' in captured["prompt"]
+    assert response.json()["total"]["calories"] == 200
+    saved = client.get("/api/meals/logs", headers=headers).json()["items"]
+    assert next(item for item in saved if item["id"] == meal["id"])["calories"] == 500

@@ -8,6 +8,7 @@ import type {
   DailyDashboardResponse,
   DashboardHistoryResponse,
   LoginRequest,
+  MealItem,
   MealRecord,
   NotificationSettings,
   PaginatedMealsResponse,
@@ -438,13 +439,14 @@ export const apiClient = {
 
   async refineMeal(
     mealId: string | number,
-    instruction: string
+    instruction: string,
+    current: { meal_name: string; notes: string; items: MealItem[]; total: { calories: number; protein_g: number; carbs_g: number; fat_g: number } }
   ): Promise<AnalyzeMealResponse> {
     return request<AnalyzeMealResponse>(
       `/api/meals/${encodeURIComponent(String(mealId))}/refine`,
       {
         method: 'POST',
-        body: JSON.stringify({ instruction }),
+        body: JSON.stringify({ instruction, current }),
       }
     );
   },

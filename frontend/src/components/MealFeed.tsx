@@ -92,7 +92,7 @@ export const MealFeed: React.FC<MealFeedProps> = ({
         {sortedMeals.length > 0 && <button
           type="button"
           className="btn btn-secondary btn-sm"
-          onClick={() => onOpenSnap('describe')}
+          onClick={() => onOpenSnap('photo')}
         >
           <Plus size={15} />
           <span>Add meal</span>

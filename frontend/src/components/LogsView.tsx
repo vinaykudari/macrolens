@@ -7,7 +7,6 @@ import {
   CopyPlus,
   Pencil,
   Plus,
-  Ruler,
   Search,
   Sparkles,
   Trash2,
@@ -33,12 +32,6 @@ interface LogsViewProps {
 }
 
 const PAGE_SIZE = 12;
-
-function isRealReference(ref: string | null | undefined): ref is string {
-  if (!ref) return false;
-  const trimmed = ref.trim().toLowerCase();
-  return Boolean(trimmed && trimmed !== 'none' && trimmed !== 'null' && trimmed !== 'n/a');
-}
 
 function getPageNumbers(current: number, totalPages: number): number[] {
   if (totalPages <= 1) return [1];
@@ -158,7 +151,7 @@ export const LogsView: React.FC<LogsViewProps> = ({
       <section className="logs-calendar card" aria-label="Choose a day">
         <div className="logs-calendar-heading">
           <h1>Meal logs</h1>
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => onOpenSnap('describe')}><Plus size={15} /> Add meal</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => onOpenSnap('photo')}><Plus size={15} /> Add meal</button>
         </div>
         <div className="logs-calendar-controls">
           <button type="button" className="icon-btn" aria-label="Previous week" onClick={() => { onSelectDate(shiftDateString(selectedDate, -7)); setAllHistory(false); setPage(1); }}><ChevronLeft size={18} /></button>
@@ -199,7 +192,7 @@ export const LogsView: React.FC<LogsViewProps> = ({
       ) : items.length === 0 ? (
         <div className="card empty-feed">
           <div className="empty-feed-copy"><h3>{debouncedQuery ? 'No matching meals' : 'No meals yet'}</h3><p>{allHistory ? 'Try another search.' : 'Add a meal for this day.'}</p></div>
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => onOpenSnap('describe')}><Plus size={15} /> Add meal</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => onOpenSnap('photo')}><Plus size={15} /> Add meal</button>
         </div>
       ) : (
         <div className={`feed-list ${loading ? 'is-refreshing' : ''}`}>
@@ -249,13 +242,6 @@ export const LogsView: React.FC<LogsViewProps> = ({
                           </>
                         )}
                       </span>
-
-                      {isRealReference(meal.detected_reference) && (
-                        <span className="ref-badge">
-                          <Ruler size={11} />
-                          <span>{meal.detected_reference}</span>
-                        </span>
-                      )}
 
                       {showMultiplier && (
                         <span className="source-badge tabular">
