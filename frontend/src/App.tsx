@@ -21,6 +21,7 @@ import { AuthView } from './components/AuthView';
 import { BottomNav, type AppTab } from './components/BottomNav';
 import { ConfigView } from './components/ConfigView';
 import { DashboardHero } from './components/DashboardHero';
+import { RecentDays } from './components/RecentDays';
 import { EditMealModal } from './components/EditMealModal';
 import { GoalCharts } from './components/GoalCharts';
 import { LogsView } from './components/LogsView';
@@ -521,6 +522,7 @@ export const App: React.FC = () => {
       <main className="app-main">
         {activeTab === 'dashboard' && (
           <div className="dashboard-layout">
+            <RecentDays selectedDate={selectedDate} onSelectDate={setSelectedDate} refreshKey={refreshKey} />
             <div className="dashboard-left">
               {dashboardError && (
                 <div className="error-box" role="alert">
@@ -532,16 +534,16 @@ export const App: React.FC = () => {
               <DashboardHero
                 selectedDate={selectedDate}
                 onChangeDate={(next) => setSelectedDate(next)}
-                dashboard={dashboard}
-                loading={loadingDashboard}
+                dashboard={dashboard?.date === selectedDate ? dashboard : null}
+                loading={loadingDashboard || (!dashboardError && dashboard?.date !== selectedDate)}
               />
             </div>
 
             <div className="dashboard-right">
               <MealFeed
                 selectedDate={selectedDate}
-                meals={dashboard?.meals ?? []}
-                loading={loadingDashboard}
+                meals={dashboard?.date === selectedDate ? dashboard.meals : []}
+                loading={loadingDashboard || (!dashboardError && dashboard?.date !== selectedDate)}
                 onEditMeal={(meal) => setEditingMeal(meal)}
                 onDeleteMeal={handleDeleteMeal}
                 onDuplicateMeal={handleDuplicateMeal}
