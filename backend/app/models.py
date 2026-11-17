@@ -46,6 +46,7 @@ class User(Base):
     last_breakfast_sent_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     last_lunch_sent_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     last_dinner_sent_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    shortcut_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, nullable=False)
 
@@ -90,6 +91,7 @@ class MealEntry(Base):
     fat_g: Mapped[float] = mapped_column(Float, nullable=False)
     photo_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     photo_mime_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    synced_to_health_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, nullable=False)
 

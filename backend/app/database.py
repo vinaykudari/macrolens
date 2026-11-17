@@ -102,6 +102,7 @@ def init_db(target_engine: Engine | None = None) -> None:
     inspector = inspect(resolved_engine)
     is_pg = resolved_engine.dialect.name == "postgresql"
     binary_type = "BYTEA" if is_pg else "BLOB"
+    dt_type = "TIMESTAMPTZ" if is_pg else "DATETIME"
     bool_default_false = "BOOLEAN NOT NULL DEFAULT FALSE" if is_pg else "BOOLEAN NOT NULL DEFAULT 0"
 
     _add_missing_columns(
@@ -111,6 +112,7 @@ def init_db(target_engine: Engine | None = None) -> None:
         {
             "photo_data": binary_type,
             "photo_mime_type": "VARCHAR(64)",
+            "synced_to_health_at": dt_type,
         },
     )
     _add_missing_columns(
@@ -126,6 +128,7 @@ def init_db(target_engine: Engine | None = None) -> None:
             "last_breakfast_sent_date": "VARCHAR(10)",
             "last_lunch_sent_date": "VARCHAR(10)",
             "last_dinner_sent_date": "VARCHAR(10)",
+            "shortcut_token_hash": "VARCHAR(64)",
         },
     )
 

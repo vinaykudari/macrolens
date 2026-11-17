@@ -4,22 +4,35 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import uuid
 import logging
+import os
+import secrets
+import urllib.parse
+import uuid
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import date as date_type
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import ValidationError
 
-from app.auth import create_access_token, get_current_user, hash_pin, verify_pin
+from app.auth import (
+    create_access_token,
+    derive_shortcut_token,
+    get_current_user,
+    get_user_by_shortcut_or_session,
+    hash_pin,
+    verify_pin,
+    verify_shortcut_token_for_user,
+)
 from app.calibration import calibrate_targets, evaluate_daily_status
 from app.config import settings
 from app.database import SessionLocal, get_db, init_db
@@ -34,6 +47,7 @@ from app.gemini_service import (
 from app.models import MealEntry, PhotoSaveRequest, PushSubscription, User
 from app.photo_processing import compress_photo
 from app.notification_service import dispatch_due_reminders, get_or_create_vapid_keys, send_push_to_user
+from app.shortcut_builder import build_health_sync_url, get_or_build_signed_shortcut
 from app.schemas import (
     AudioTranscribeResponse,
     AuthResponse,
@@ -61,6 +75,12 @@ from app.schemas import (
     PushSubscribeRequest,
     PushTestResponse,
     PushUnsubscribeRequest,
+    ShortcutHealthMealItem,
+    ShortcutHealthSyncResponse,
+    ShortcutPrepareRequest,
+    ShortcutPrepareResponse,
+    ShortcutTokenCreateResponse,
+    ShortcutTokenStatusResponse,
     SignupRequest,
     UserProfile,
     UserResponse,
@@ -1215,3 +1235,330 @@ def send_test_push_notification(
         if failed == 0
         else f"Sent to {sent} device(s), {failed} failed",
     )
+
+
+# ---------------------------------------------------------------------------
+# Apple Shortcuts -> Apple Health Bridge
+# ---------------------------------------------------------------------------
+
+
+def _resolve_shortcut_day_window(
+    *,
+    date_str: str | None,
+    tz_offset_minutes: int | None,
+    user_timezone: str,
+) -> tuple[str, datetime, datetime]:
+    """Compute [start_utc, end_utc) for a local calendar day using explicit offset or user IANA zone."""
+    if tz_offset_minutes is not None:
+        offset = timedelta(minutes=tz_offset_minutes)
+        if date_str is not None and date_str.strip():
+            target_date = _parse_optional_date(date_str)
+        else:
+            target_date = (datetime.now(timezone.utc) - offset).date()
+        start_utc = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc) + offset
+        return target_date.isoformat(), start_utc, start_utc + timedelta(days=1)
+
+    try:
+        tz = ZoneInfo(user_timezone or "UTC")
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("UTC")
+
+    if date_str is not None and date_str.strip():
+        target_date = _parse_optional_date(date_str)
+    else:
+        target_date = datetime.now(tz).date()
+
+    start_local = datetime(target_date.year, target_date.month, target_date.day, tzinfo=tz)
+    end_local = start_local + timedelta(days=1)
+    return target_date.isoformat(), start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def _ensure_v2_shortcut_token(user: User, db: Session) -> str:
+    """Return user's active v2 shortcut token, provisioning one if missing or legacy."""
+    if not user.shortcut_token_hash or not user.shortcut_token_hash.startswith("v2:"):
+        nonce = secrets.token_hex(16)
+        user.shortcut_token_hash = f"v2:{nonce}"
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return derive_shortcut_token(user_id=user.id, nonce=user.shortcut_token_hash[3:])
+
+
+@app.get("/api/shortcuts/token", response_model=ShortcutTokenStatusResponse)
+def get_shortcut_token_status(
+    current_user: User = Depends(get_current_user),
+) -> ShortcutTokenStatusResponse:
+    """Return whether a personal Apple Shortcuts sync token is configured (and recoverable v2 token)."""
+    if current_user.shortcut_token_hash and current_user.shortcut_token_hash.startswith("v2:"):
+        token = derive_shortcut_token(
+            user_id=current_user.id,
+            nonce=current_user.shortcut_token_hash[3:],
+        )
+        return ShortcutTokenStatusResponse(configured=True, token=token)
+    return ShortcutTokenStatusResponse(
+        configured=bool(current_user.shortcut_token_hash),
+        token=None,
+    )
+
+
+@app.post("/api/shortcuts/token", response_model=ShortcutTokenCreateResponse)
+def generate_shortcut_token(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ShortcutTokenCreateResponse:
+    """Generate or rotate a recoverable v2 personal bearer token for Apple Shortcuts sync."""
+    nonce = secrets.token_hex(16)
+    current_user.shortcut_token_hash = f"v2:{nonce}"
+    db.add(current_user)
+    db.commit()
+    raw_token = derive_shortcut_token(user_id=current_user.id, nonce=nonce)
+    return ShortcutTokenCreateResponse(token=raw_token, configured=True)
+
+
+@app.delete("/api/shortcuts/token", response_model=ShortcutTokenStatusResponse)
+def revoke_shortcut_token(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ShortcutTokenStatusResponse:
+    """Revoke the user's personal Apple Shortcuts sync token."""
+    current_user.shortcut_token_hash = None
+    db.add(current_user)
+    db.commit()
+    return ShortcutTokenStatusResponse(configured=False)
+
+
+@app.get("/api/shortcuts/health-sync", response_model=ShortcutHealthSyncResponse)
+def get_shortcuts_health_sync(
+    date: str | None = Query(default=None, description="Local date YYYY-MM-DD (defaults to today)"),
+    tz_offset_minutes: int | None = Query(default=None, ge=-840, le=840),
+    unsynced_only: bool = Query(default=False),
+    mark_synced: bool = Query(default=False),
+    user: User = Depends(get_user_by_shortcut_or_session),
+    db: Session = Depends(get_db),
+) -> ShortcutHealthSyncResponse:
+    """Return Shortcuts-friendly nutrition totals and meals for logging into Apple Health."""
+    resolved_date, start_utc, end_utc = _resolve_shortcut_day_window(
+        date_str=date,
+        tz_offset_minutes=tz_offset_minutes,
+        user_timezone=user.reminder_timezone,
+    )
+
+    entries = list(
+        db.scalars(
+            select(MealEntry)
+            .where(
+                MealEntry.user_id == user.id,
+                MealEntry.logged_at >= start_utc,
+                MealEntry.logged_at < end_utc,
+            )
+            .order_by(MealEntry.logged_at.asc(), MealEntry.id.asc())
+        )
+    )
+
+    unsynced_entries = [entry for entry in entries if entry.synced_to_health_at is None]
+    selected_entries = unsynced_entries if unsynced_only else entries
+
+    items = [
+        ShortcutHealthMealItem(
+            id=entry.id,
+            meal_name=entry.meal_name,
+            logged_at=entry.logged_at,
+            calories=round(entry.calories, 1),
+            protein_g=round(entry.protein_g, 1),
+            carbs_g=round(entry.carbs_g, 1),
+            fat_g=round(entry.fat_g, 1),
+            synced_to_health=entry.synced_to_health_at is not None,
+        )
+        for entry in selected_entries
+    ]
+
+    if mark_synced and selected_entries:
+        synced_now = datetime.now(timezone.utc)
+        for entry in selected_entries:
+            if entry.synced_to_health_at is None:
+                entry.synced_to_health_at = synced_now
+                db.add(entry)
+        db.commit()
+
+    return ShortcutHealthSyncResponse(
+        date=resolved_date,
+        total_calories=round(sum(entry.calories for entry in selected_entries), 1),
+        total_protein_g=round(sum(entry.protein_g for entry in selected_entries), 1),
+        total_carbs_g=round(sum(entry.carbs_g for entry in selected_entries), 1),
+        total_fat_g=round(sum(entry.fat_g for entry in selected_entries), 1),
+        meal_count=len(selected_entries),
+        unsynced_count=len(unsynced_entries),
+        meals=items,
+    )
+
+
+@app.post("/api/shortcuts/meals/{meal_id}/mark-synced", response_model=ShortcutHealthMealItem)
+def mark_meal_synced_to_health(
+    meal_id: int,
+    user: User = Depends(get_user_by_shortcut_or_session),
+    db: Session = Depends(get_db),
+) -> ShortcutHealthMealItem:
+    """Mark a single meal entry as synced to Apple Health."""
+    meal = db.scalar(
+        select(MealEntry).where(MealEntry.id == meal_id, MealEntry.user_id == user.id)
+    )
+    if meal is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meal entry not found")
+
+    if meal.synced_to_health_at is None:
+        meal.synced_to_health_at = datetime.now(timezone.utc)
+        db.add(meal)
+        db.commit()
+        db.refresh(meal)
+
+    return ShortcutHealthMealItem(
+        id=meal.id,
+        meal_name=meal.meal_name,
+        logged_at=meal.logged_at,
+        calories=round(meal.calories, 1),
+        protein_g=round(meal.protein_g, 1),
+        carbs_g=round(meal.carbs_g, 1),
+        fat_g=round(meal.fat_g, 1),
+        synced_to_health=True,
+    )
+
+
+@app.post("/api/shortcuts/health-sync", response_model=ShortcutHealthMealItem)
+def acknowledge_shortcut_health_sync(
+    meal_id: int = Query(..., ge=1),
+    user: User = Depends(get_user_by_shortcut_or_session),
+    db: Session = Depends(get_db),
+) -> ShortcutHealthMealItem:
+    """Acknowledge one meal after the Shortcut completes its Health writes."""
+    return mark_meal_synced_to_health(meal_id=meal_id, user=user, db=db)
+
+
+def _resolve_shortcut_base_url(request: Request, base_url: str | None) -> str:
+    """Resolve and validate the origin/base URL used inside generated Shortcut files."""
+    if base_url is not None and base_url.strip():
+        return base_url.strip().rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
+def _verify_user_shortcut_token(user: User, raw_token: str) -> str:
+    """Verify that raw_token is a valid mls_ token belonging to user."""
+    cleaned = raw_token.strip()
+    if not verify_shortcut_token_for_user(user, cleaned):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked Apple Shortcut token",
+        )
+    return cleaned
+
+
+def _shortcut_file_response(origin: str, token: str) -> Response:
+    """Build and return a signed .shortcut Response for the given origin and token."""
+    try:
+        sync_url = build_health_sync_url(origin, token)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    try:
+        signed_bytes, mode = get_or_build_signed_shortcut(sync_url)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    return Response(
+        content=signed_bytes,
+        media_type="application/x-apple-shortcut",
+        headers={
+            "Content-Disposition": 'attachment; filename="MacroLens-Health-Sync.shortcut"',
+            "X-Shortcut-Mode": mode,
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.post("/api/shortcuts/prepare", response_model=ShortcutPrepareResponse)
+def prepare_shortcut_download(
+    payload: ShortcutPrepareRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> ShortcutPrepareResponse:
+    """Build and sign a downloadable .shortcut file pre-configured with the user's sync URL."""
+    token = _verify_user_shortcut_token(current_user, payload.token)
+    origin = _resolve_shortcut_base_url(request, payload.base_url)
+    try:
+        sync_url = build_health_sync_url(origin, token)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    try:
+        _, mode = get_or_build_signed_shortcut(sync_url)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    download_url = (
+        f"/api/shortcuts/download?token={urllib.parse.quote(token, safe='')}"
+        f"&base_url={urllib.parse.quote(origin, safe='')}"
+    )
+    return ShortcutPrepareResponse(download_url=download_url, sync_url=sync_url, mode=mode)
+
+
+@app.get("/api/shortcuts/install")
+def install_signed_shortcut(
+    request: Request,
+    base_url: str | None = Query(default=None, max_length=512),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Auto-provision a v2 token if needed and serve a signed .shortcut file synchronously."""
+    raw_token = _ensure_v2_shortcut_token(current_user, db)
+    origin = _resolve_shortcut_base_url(request, base_url)
+    return _shortcut_file_response(origin, raw_token)
+
+
+@app.get("/api/shortcuts/download")
+def download_signed_shortcut(
+    request: Request,
+    token: str = Query(..., min_length=8, max_length=256),
+    base_url: str | None = Query(default=None, max_length=512),
+    user: User = Depends(get_user_by_shortcut_or_session),
+) -> Response:
+    """Serve a signed Apple Shortcut (.shortcut) installer configured for the user."""
+    cleaned_token = _verify_user_shortcut_token(user, token)
+    origin = _resolve_shortcut_base_url(request, base_url)
+    return _shortcut_file_response(origin, cleaned_token)
+
+
+# ---------------------------------------------------------------------------
+# Production Static SPA Serving (for single-service deployment on Dexter)
+# ---------------------------------------------------------------------------
+
+DEFAULT_FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def serve_frontend_spa(full_path: str) -> FileResponse:
+    """Serve built Vite PWA assets and SPA fallback when frontend/dist exists."""
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+    dist_dir = Path(os.getenv("FRONTEND_DIST_DIR") or DEFAULT_FRONTEND_DIST).resolve()
+    index_file = dist_dir / "index.html"
+    if not index_file.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+    if full_path:
+        candidate = (dist_dir / full_path).resolve()
+        if candidate.is_relative_to(dist_dir) and candidate.is_file():
+            cache_control = (
+                "public, max-age=31536000, immutable"
+                if full_path.startswith("assets/")
+                else "no-cache"
+            )
+            media_type = (
+                "application/manifest+json" if candidate.suffix == ".webmanifest" else None
+            )
+            return FileResponse(
+                candidate,
+                media_type=media_type,
+                headers={"Cache-Control": cache_control},
+            )
+
+    return FileResponse(index_file, headers={"Cache-Control": "no-cache"})

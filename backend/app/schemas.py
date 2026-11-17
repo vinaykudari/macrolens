@@ -502,3 +502,58 @@ class DashboardHistoryResponse(BaseModel):
     targets: MacroTargets
     summary: DashboardHistorySummary
     series: list[DashboardHistoryDay]
+
+
+class ShortcutTokenStatusResponse(BaseModel):
+    """Status of the user's personal Apple Shortcuts sync token."""
+
+    configured: bool
+    token: str | None = None
+
+
+class ShortcutTokenCreateResponse(BaseModel):
+    """Newly generated personal Apple Shortcuts sync token (shown once)."""
+
+    token: str
+    configured: bool = True
+
+
+class ShortcutHealthMealItem(BaseModel):
+    """Flat, Shortcuts-friendly meal payload for Apple Health logging."""
+
+    id: int
+    meal_name: str
+    logged_at: datetime
+    calories: float
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+    synced_to_health: bool
+
+
+class ShortcutHealthSyncResponse(BaseModel):
+    """Daily or incremental nutrition payload for Apple Shortcuts -> Apple Health."""
+
+    date: str
+    total_calories: float
+    total_protein_g: float
+    total_carbs_g: float
+    total_fat_g: float
+    meal_count: int
+    unsynced_count: int
+    meals: list[ShortcutHealthMealItem]
+
+
+class ShortcutPrepareRequest(BaseModel):
+    """Request to build and sign a pre-configured Apple Health .shortcut installer."""
+
+    token: str = Field(..., min_length=8, max_length=256)
+    base_url: str | None = Field(default=None, max_length=512)
+
+
+class ShortcutPrepareResponse(BaseModel):
+    """Download URL and embedded sync URL for the prepared .shortcut installer."""
+
+    download_url: str
+    sync_url: str
+    mode: Literal["baked", "template"]

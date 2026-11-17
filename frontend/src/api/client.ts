@@ -14,6 +14,10 @@ import type {
   PushSubscriptionPayload,
   PushTestResponse,
   QuickMealTemplate,
+  ShortcutHealthSyncResponse,
+  ShortcutPrepareResponse,
+  ShortcutTokenCreateResponse,
+  ShortcutTokenStatusResponse,
   SignupRequest,
   UpdateConfigRequest,
   UpdateMealRequest,
@@ -612,5 +616,58 @@ export const apiClient = {
     return request<PushTestResponse>('/api/notifications/test', {
       method: 'POST',
     });
+  },
+
+  async getShortcutTokenStatus(): Promise<ShortcutTokenStatusResponse> {
+    return request<ShortcutTokenStatusResponse>('/api/shortcuts/token', {
+      method: 'GET',
+    });
+  },
+
+  async generateShortcutToken(): Promise<ShortcutTokenCreateResponse> {
+    return request<ShortcutTokenCreateResponse>('/api/shortcuts/token', {
+      method: 'POST',
+    });
+  },
+
+  async revokeShortcutToken(): Promise<ShortcutTokenStatusResponse> {
+    return request<ShortcutTokenStatusResponse>('/api/shortcuts/token', {
+      method: 'DELETE',
+    });
+  },
+
+  async getShortcutHealthSync(params?: {
+    date?: string;
+    unsyncedOnly?: boolean;
+    markSynced?: boolean;
+  }): Promise<ShortcutHealthSyncResponse> {
+    const search = new URLSearchParams({
+      tz_offset_minutes: String(new Date().getTimezoneOffset()),
+    });
+    if (params?.date) search.set('date', params.date);
+    if (params?.unsyncedOnly) search.set('unsynced_only', 'true');
+    if (params?.markSynced) search.set('mark_synced', 'true');
+    return request<ShortcutHealthSyncResponse>(
+      `/api/shortcuts/health-sync?${search.toString()}`,
+      { method: 'GET' }
+    );
+  },
+
+  async prepareShortcutDownload(params: {
+    token: string;
+    baseUrl: string;
+  }): Promise<ShortcutPrepareResponse> {
+    return request<ShortcutPrepareResponse>('/api/shortcuts/prepare', {
+      method: 'POST',
+      body: JSON.stringify({
+        token: params.token,
+        base_url: params.baseUrl,
+      }),
+    });
+  },
+
+  buildShortcutInstallUrl(baseUrl: string): string {
+    const params = new URLSearchParams({ base_url: baseUrl });
+    return `/api/shortcuts/install?${params.toString()}`;
   },
 };

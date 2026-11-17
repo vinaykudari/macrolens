@@ -12,6 +12,7 @@ import {
   Smartphone,
 } from 'lucide-react';
 import { apiClient, ApiError } from '../api/client';
+import { AppleHealthBridgeCard } from './AppleHealthBridgeCard';
 import type {
   ActivityLevel,
   ConfigResponse,
@@ -944,6 +945,9 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         </div>
         </div>
       </details>
+
+      {/* Apple Health Shortcuts Bridge */}
+      <AppleHealthBridgeCard userId={user.id} onNotify={onNotify} />
 
       {/* Account */}
       <section className="card card-padded account-card">

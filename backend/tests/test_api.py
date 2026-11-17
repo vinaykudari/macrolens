@@ -1739,3 +1739,253 @@ def test_photo_compression_supports_legacy_formats() -> None:
         result = compress_photo(buf.getvalue())
         decoded = Image.open(io.BytesIO(result)); decoded.load()
         assert decoded.format == 'JPEG' and max(decoded.size) <= 1600 and len(result) <= 1_000_000
+
+
+def test_apple_shortcuts_health_sync_bridge(client: TestClient) -> None:
+    auth = _signup_user(client, email="shortcut@example.com", pin="1234")
+    headers = _auth_headers(auth["access_token"])
+
+    # Initially unconfigured
+    status_res = client.get("/api/shortcuts/token", headers=headers)
+    assert status_res.status_code == 200
+    assert status_res.json() == {"configured": False, "token": None}
+
+    # Generate personal shortcut token
+    gen_res = client.post("/api/shortcuts/token", headers=headers)
+    assert gen_res.status_code == 200
+    shortcut_token = gen_res.json()["token"]
+    assert shortcut_token.startswith("mls_")
+    assert client.get("/api/shortcuts/token", headers=headers).json() == {
+        "configured": True,
+        "token": shortcut_token,
+    }
+
+    # Log 2 meals on 2026-11-16
+    m1 = client.post(
+        "/api/meals",
+        headers=headers,
+        json={
+            "meal_name": "Morning Eggs",
+            "logged_at": "2026-11-16T16:00:00Z",
+            "calories": 280,
+            "protein_g": 22,
+            "carbs_g": 4,
+            "fat_g": 18,
+        },
+    )
+    assert m1.status_code == 201
+    m2 = client.post(
+        "/api/meals",
+        headers=headers,
+        json={
+            "meal_name": "Protein Bar",
+            "logged_at": "2026-11-16T21:00:00Z",
+            "calories": 210,
+            "protein_g": 20,
+            "carbs_g": 22,
+            "fat_g": 7,
+        },
+    )
+    assert m2.status_code == 201
+
+    # Sync via Bearer mls_ token with mark_synced=true
+    sync_1 = client.get(
+        "/api/shortcuts/health-sync",
+        headers={"Authorization": f"Bearer {shortcut_token}"},
+        params={"date": "2026-11-16", "tz_offset_minutes": 0, "unsynced_only": "true"},
+    )
+    assert sync_1.status_code == 200
+    body_1 = sync_1.json()
+    assert body_1["meal_count"] == 2
+    assert body_1["unsynced_count"] == 2
+    assert body_1["total_calories"] == 490
+    assert body_1["total_protein_g"] == 42
+
+    # Reading does not acknowledge meals. Each acknowledgment follows the Health writes.
+    still_pending = client.get(
+        "/api/shortcuts/health-sync",
+        params={"token": shortcut_token, "date": "2026-11-16", "tz_offset_minutes": 0, "unsynced_only": "true"},
+    )
+    assert still_pending.json()["meal_count"] == 2
+    for meal in body_1["meals"]:
+        acknowledged = client.post(
+            "/api/shortcuts/health-sync", params={"token": shortcut_token, "meal_id": meal["id"]}
+        )
+        assert acknowledged.status_code == 200
+        assert acknowledged.json()["synced_to_health"] is True
+
+    # Second run with unsynced_only=true returns 0 unsynced meals (no double-counting in Apple Health)
+    sync_2 = client.get(
+        "/api/shortcuts/health-sync",
+        params={"token": shortcut_token, "date": "2026-11-16", "tz_offset_minutes": 0, "unsynced_only": "true"},
+    )
+    assert sync_2.status_code == 200
+    assert sync_2.json()["meal_count"] == 0
+    assert sync_2.json()["unsynced_count"] == 0
+
+    # Revoke token -> 401
+    rev = client.delete("/api/shortcuts/token", headers=headers)
+    assert rev.status_code == 200
+    assert rev.json() == {"configured": False, "token": None}
+    denied = client.get(
+        "/api/shortcuts/health-sync",
+        headers={"Authorization": f"Bearer {shortcut_token}"},
+    )
+    assert denied.status_code == 401
+
+
+def test_apple_shortcut_file_prepare_and_download(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import plistlib
+    from app import shortcut_builder
+
+    # Verify plist structure embeds exact sync URL and all 16 actions
+    sample_url = shortcut_builder.build_health_sync_url("http://192.168.1.10:5173/", "mls_test123")
+    assert sample_url == (
+        "http://192.168.1.10:5173/api/shortcuts/health-sync"
+        "?token=mls_test123&unsynced_only=true"
+    )
+    plist_bytes = shortcut_builder.build_shortcut_plist_bytes(sample_url)
+    doc = plistlib.loads(plist_bytes)
+    actions = doc["WFWorkflowActions"]
+    assert len(actions) == 18
+    assert actions[0]["WFWorkflowActionIdentifier"] == "is.workflow.actions.gettext"
+    assert actions[0]["WFWorkflowActionParameters"]["WFTextActionText"] == sample_url
+    assert actions[1]["WFWorkflowActionIdentifier"] == "is.workflow.actions.downloadurl"
+    assert actions[2]["WFWorkflowActionIdentifier"] == "is.workflow.actions.getvalueforkey"
+    assert actions[3]["WFWorkflowActionIdentifier"] == "is.workflow.actions.repeat.each"
+    assert actions[5]["WFWorkflowActionIdentifier"] == "is.workflow.actions.detect.date"
+    health_types = [
+        a["WFWorkflowActionParameters"]["WFQuantitySampleType"]
+        for a in actions
+        if a["WFWorkflowActionIdentifier"] == "is.workflow.actions.health.quantity.log"
+    ]
+    assert health_types == ["Dietary Energy", "Protein", "Carbohydrates", "Total Fat"]
+    assert actions[14]["WFWorkflowActionParameters"]["WFDictionaryKey"] == "id"
+    assert actions[15]["WFWorkflowActionParameters"]["WFHTTPMethod"] == "POST"
+    assert actions[16]["WFWorkflowActionIdentifier"] == "is.workflow.actions.repeat.each"
+    assert actions[17]["WFWorkflowActionIdentifier"] == "is.workflow.actions.notification"
+
+    auth = _signup_user(client, email="shortcutdl@example.com", pin="1234")
+    headers = _auth_headers(auth["access_token"])
+    shortcut_token = client.post("/api/shortcuts/token", headers=headers).json()["token"]
+
+    shortcut_builder._SIGNED_CACHE.clear()
+    monkeypatch.setattr(shortcut_builder, "sign_shortcut_plist", lambda _b: b"AEA1signedmock")
+
+    prep = client.post(
+        "/api/shortcuts/prepare",
+        headers=headers,
+        json={"token": shortcut_token, "base_url": "https://macros.example.com"},
+    )
+    assert prep.status_code == 200
+    prep_json = prep.json()
+    assert prep_json["mode"] == "baked"
+    assert f"token={shortcut_token}" in prep_json["sync_url"]
+    assert prep_json["download_url"].startswith("/api/shortcuts/download?")
+
+    dl = client.get(prep_json["download_url"], headers=headers)
+    assert dl.status_code == 200
+    assert dl.headers["content-type"] == "application/x-apple-shortcut"
+    assert dl.headers["x-shortcut-mode"] == "baked"
+    assert dl.content == b"AEA1signedmock"
+
+    # Fallback to pre-signed template when shortcuts CLI is unavailable
+    shortcut_builder._SIGNED_CACHE.clear()
+    monkeypatch.setattr(shortcut_builder, "sign_shortcut_plist", lambda _b: None)
+
+    prep_tpl = client.post(
+        "/api/shortcuts/prepare",
+        headers=headers,
+        json={"token": shortcut_token, "base_url": "https://macros.example.com"},
+    )
+    assert prep_tpl.status_code == 200
+    assert prep_tpl.json()["mode"] == "template"
+
+    dl_tpl = client.get(prep_tpl.json()["download_url"], headers=headers)
+    assert dl_tpl.status_code == 200
+    assert dl_tpl.headers["content-type"] == "application/x-apple-shortcut"
+    assert dl_tpl.headers["x-shortcut-mode"] == "template"
+    assert dl_tpl.content[:4] == b"AEA1"
+
+    # Wrong/revoked token rejected with 401
+    bad_prep = client.post(
+        "/api/shortcuts/prepare",
+        headers=headers,
+        json={"token": "mls_invalid_token_value", "base_url": "https://macros.example.com"},
+    )
+    assert bad_prep.status_code == 401
+    bad_dl = client.get(
+        "/api/shortcuts/download",
+        headers=headers,
+        params={"token": "mls_invalid_token_value"},
+    )
+    assert bad_dl.status_code == 401
+
+    # Direct synchronous /api/shortcuts/install auto-provisions v2 token & authenticates via ?auth_token=<jwt>
+    fresh = _signup_user(client, email="autoinstall@example.com", pin="1234")
+    fresh_jwt = fresh["access_token"]
+    fresh_headers = _auth_headers(fresh_jwt)
+    assert client.get("/api/shortcuts/token", headers=fresh_headers).json() == {
+        "configured": False,
+        "token": None,
+    }
+
+    shortcut_builder._SIGNED_CACHE.clear()
+    monkeypatch.setattr(shortcut_builder, "sign_shortcut_plist", lambda _b: b"AEA1autoinstall")
+    install_res = client.get(
+        "/api/shortcuts/install",
+        params={"base_url": "https://macros.example.com"},
+        headers=fresh_headers,
+    )
+    assert install_res.status_code == 200
+    assert install_res.headers["content-type"] == "application/x-apple-shortcut"
+    assert install_res.headers["x-shortcut-mode"] == "baked"
+    assert install_res.content == b"AEA1autoinstall"
+
+    post_status = client.get("/api/shortcuts/token", headers=fresh_headers).json()
+    assert post_status["configured"] is True
+    assert post_status["token"] and post_status["token"].startswith("mls_")
+
+
+def test_production_spa_static_serving(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dist_dir = tmp_path / "dist"
+    assets_dir = dist_dir / "assets"
+    assets_dir.mkdir(parents=True)
+    (dist_dir / "index.html").write_text("<html><body>MacroLens SPA</body></html>", encoding="utf-8")
+    (dist_dir / "sw.js").write_text("// service worker", encoding="utf-8")
+    (dist_dir / "manifest.webmanifest").write_text('{"name":"MacroLens"}', encoding="utf-8")
+    (assets_dir / "app.js").write_text("console.log('ok');", encoding="utf-8")
+
+    monkeypatch.setenv("FRONTEND_DIST_DIR", str(dist_dir))
+
+    root = client.get("/")
+    assert root.status_code == 200
+    assert "MacroLens SPA" in root.text
+    assert root.headers["cache-control"] == "no-cache"
+
+    spa_route = client.get("/logs")
+    assert spa_route.status_code == 200
+    assert "MacroLens SPA" in spa_route.text
+
+    sw_res = client.get("/sw.js")
+    assert sw_res.status_code == 200
+    assert sw_res.headers["cache-control"] == "no-cache"
+
+    manifest_res = client.get("/manifest.webmanifest")
+    assert manifest_res.status_code == 200
+    assert manifest_res.headers["content-type"].startswith("application/manifest+json")
+
+    asset_res = client.get("/assets/app.js")
+    assert asset_res.status_code == 200
+    assert asset_res.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+    api_404 = client.get("/api/unknown")
+    assert api_404.status_code == 404
+    assert api_404.json() == {"detail": "Not Found"}

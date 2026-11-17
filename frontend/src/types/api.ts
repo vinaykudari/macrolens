@@ -254,3 +254,41 @@ export interface QuickMealTemplate {
   isPreset?: boolean;
   lastUsedAt?: string;
 }
+
+export interface ShortcutTokenStatusResponse {
+  configured: boolean;
+  token?: string | null;
+}
+
+export interface ShortcutTokenCreateResponse {
+  token: string;
+  configured: boolean;
+}
+
+export interface ShortcutHealthMealItem {
+  id: number;
+  meal_name: string;
+  logged_at: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  synced_to_health: boolean;
+}
+
+export interface ShortcutHealthSyncResponse {
+  date: string;
+  total_calories: number;
+  total_protein_g: number;
+  total_carbs_g: number;
+  total_fat_g: number;
+  meal_count: number;
+  unsynced_count: number;
+  meals: ShortcutHealthMealItem[];
+}
+
+export interface ShortcutPrepareResponse {
+  download_url: string;
+  sync_url: string;
+  mode: 'baked' | 'template';
+}

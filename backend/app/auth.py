@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import time
 from typing import Any
@@ -189,3 +190,73 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+
+_V2_SHORTCUT_TOKEN_RE = re.compile(r"^mls_(\d+)_([0-9a-f]{32})$")
+
+
+def hash_shortcut_token(token: str) -> str:
+    """Compute SHA-256 hex digest for a personal Apple Shortcut sync token."""
+    return hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
+
+
+def derive_shortcut_token(*, user_id: int, nonce: str, secret_key: str | None = None) -> str:
+    """Derive a deterministic, revocable Apple Shortcut token for a user from stored v2 nonce."""
+    resolved_secret = (secret_key if secret_key is not None else settings.SECRET_KEY).encode("utf-8")
+    mac = hmac.new(resolved_secret, f"shortcut:{user_id}:{nonce}".encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+    return f"mls_{user_id}_{mac}"
+
+
+def verify_shortcut_token_for_user(user: User, raw_token: str) -> bool:
+    """Verify an mls_ shortcut token against user's stored v2 nonce or legacy SHA-256 hash."""
+    cleaned = raw_token.strip()
+    if not cleaned.startswith("mls_") or not user.shortcut_token_hash:
+        return False
+    if user.shortcut_token_hash.startswith("v2:"):
+        expected = derive_shortcut_token(user_id=user.id, nonce=user.shortcut_token_hash[3:])
+        return hmac.compare_digest(cleaned, expected)
+    return hmac.compare_digest(user.shortcut_token_hash, hash_shortcut_token(cleaned))
+
+
+def get_user_by_shortcut_or_session(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    """Authenticate via personal Apple Shortcut token (Bearer/header/query) or normal session."""
+    from sqlalchemy import select
+
+    candidate_tokens: list[str] = []
+    if credentials is not None and credentials.credentials:
+        candidate_tokens.append(credentials.credentials.strip())
+    header_tok = request.headers.get("X-Shortcut-Token", "").strip()
+    if header_tok:
+        candidate_tokens.append(header_tok)
+    query_tok = request.query_params.get("token", "").strip()
+    if query_tok:
+        candidate_tokens.append(query_tok)
+
+    for tok in candidate_tokens:
+        if tok.startswith("mls_"):
+            match = _V2_SHORTCUT_TOKEN_RE.match(tok)
+            if match:
+                uid = int(match.group(1))
+                user = db.get(User, uid)
+                if user is not None and verify_shortcut_token_for_user(user, tok):
+                    return user
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or revoked Apple Shortcut token",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            digest = hash_shortcut_token(tok)
+            user = db.scalar(select(User).where(User.shortcut_token_hash == digest))
+            if user is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or revoked Apple Shortcut token",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            return user
+
+    return get_current_user(request=request, credentials=credentials, db=db)
