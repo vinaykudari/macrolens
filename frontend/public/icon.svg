@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>MacroLens</title>
+  <rect width="512" height="512" fill="#10141f" />
+  <g fill="none" stroke="#f1f3f6" stroke-width="36" stroke-linecap="round">
+    <path d="M289.13 132.36 A128 128 0 1 1 165.49 346.51" />
+    <path d="M132.36 289.13 A128 128 0 0 1 222.87 132.36" />
+  </g>
+  <circle cx="256" cy="256" r="38" fill="#f1f3f6" />
+</svg>
