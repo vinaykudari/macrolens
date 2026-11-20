@@ -1,5 +1,4 @@
-/* ==========================================================================
-   MacroLens Design Language
+/* ===================================================================   MacroLens Design Language
    One system shared by the iOS icon and the UI:
    - Obsidian surfaces lit from above (icon bg #121726 -> #080a0f + top sheen)
    - Coral "calorie" arc  (#ff8a4c -> #ff4d6d)
@@ -3560,3 +3559,13 @@ nav.desktop-nav .btn-secondary {
 .week-status.is-logged { background: var(--text-muted); }
 .week-legend { display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: 5px; color: var(--text-secondary); font-size: .65rem; }
 .week-legend button { border: 0; background: transparent; color: var(--text-secondary); font: inherit; text-decoration: underline; cursor: pointer; }
+.log-export { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.log-export-heading { display: flex; align-items: center; justify-content: space-between; }
+.log-export-heading h2 { margin: 0; font-size: 1rem; }
+.log-export p { margin: 0; }
+.log-export-date-row { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.log-export-date-row label { display: flex; flex-direction: column; gap: 4px; font-size: .75rem; color: var(--text-secondary); flex: 1 1 120px; }
+.log-export-date-row input { min-width: 0; width: 100%; color: var(--text-primary); background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px; color-scheme: dark; }
+.log-export-selection { display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow-y: auto; }
+.log-export-day { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-subtle); border-radius: 99px; padding: 6px 9px; color: var(--text-primary); background: var(--bg-input); font-size: .75rem; }
+.log-export > .btn { align-self: flex-start; }

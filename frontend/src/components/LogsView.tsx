@@ -18,6 +18,7 @@ import type { DailyDashboardResponse, MealRecord, PaginatedMealsResponse } from 
 import { formatMealDateTime, formatLongDate, getLocalDateString, getTzOffsetMinutes, normalizeIsoTimestamp, parseLocalDateString, shiftDateString } from '../utils/date';
 import { getDisplayMealItems } from '../utils/mealItems';
 import { MealPhotoThumbnail, PhotoLightboxModal } from './MealPhoto';
+import { LogExport } from './LogExport';
 import type { SnapInitialTab } from './SnapMealSheet';
 
 interface LogsViewProps {
@@ -169,6 +170,7 @@ export const LogsView: React.FC<LogsViewProps> = ({
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => { onSelectDate(getLocalDateString()); setAllHistory(false); setPage(1); }}>Today</button>
         </div>
       </section>
+      <LogExport selectedDate={selectedDate} />
       <div className="logs-list-heading"><h2>{allHistory ? 'All meals' : formatLongDate(selectedDate)}</h2><span>{total} {total === 1 ? 'meal' : 'meals'}</span></div>
       {!allHistory && dashboard?.date === selectedDate && <div className="logs-day-totals" aria-label="Daily totals"><span>{Math.round(dashboard.consumed.calories).toLocaleString()} kcal</span><span>{Math.round(dashboard.consumed.protein_g)}g protein</span><span>{Math.round(dashboard.consumed.carbs_g)}g carbs</span><span>{Math.round(dashboard.consumed.fat_g)}g fat</span></div>}
       <div className="logs-search-row">
