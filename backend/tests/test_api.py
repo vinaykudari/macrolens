@@ -2041,3 +2041,42 @@ def test_refine_uses_owned_photo_and_current_draft(client: TestClient, monkeypat
     assert response.json()["total"]["calories"] == 200
     saved = client.get("/api/meals/logs", headers=headers).json()["items"]
     assert next(item for item in saved if item["id"] == meal["id"])["calories"] == 500
+
+
+@pytest.mark.parametrize(
+    ("provider_message", "expected"),
+    [
+        ("Your project has exceeded its monthly spending cap.", "monthly spending cap was reached"),
+        ("Quota exceeded for requests per minute.", "reached a usage limit"),
+    ],
+)
+@pytest.mark.parametrize("transport", ["sdk", "rest"])
+def test_photo_analysis_reports_provider_limit_clearly(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, provider_message: str, expected: str, transport: str,
+) -> None:
+    import urllib.error
+    from google.genai.errors import ClientError
+
+    user = _signup_user(client, email=f"limit-{transport}@example.com")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    if transport == "sdk":
+        def fail_sdk(**kwargs: Any) -> str:
+            raise ClientError(429, {"error": {"code": 429, "message": provider_message, "status": "RESOURCE_EXHAUSTED"}})
+        monkeypatch.setattr(gemini_service, "_call_gemini_sdk", fail_sdk)
+    else:
+        monkeypatch.setattr(gemini_service, "genai", None)
+        monkeypatch.setattr(gemini_service, "types", None)
+        def fail_rest(*args: Any, **kwargs: Any) -> None:
+            body = json.dumps({"error": {"message": provider_message}}).encode()
+            raise urllib.error.HTTPError("https://example.invalid", 429, "rate limited", {}, io.BytesIO(body))
+        monkeypatch.setattr(gemini_service.urllib.request, "urlopen", fail_rest)
+    response = client.post(
+        "/api/meals/analyze", headers=_auth_headers(user["access_token"]),
+        files={"image": ("meal.jpg", io.BytesIO(b"\xff\xd8\xff\xe0fake"), "image/jpeg")},
+    )
+    assert response.status_code == 503
+    assert expected in response.json()["detail"]
+    assert "RESOURCE_EXHAUSTED" not in response.text
+    assert provider_message not in response.text
+    if "spending" not in provider_message:
+        assert "spending cap" not in response.text

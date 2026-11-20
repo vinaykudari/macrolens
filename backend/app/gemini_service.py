@@ -597,6 +597,20 @@ def _extract_rest_response_text(response_json: dict[str, Any]) -> str:
     return combined
 
 
+def _gemini_limit_error(message: str) -> HTTPException:
+    """Translate provider limits into actionable messages without exposing raw errors."""
+    lowered = message.lower()
+    if "spending cap" in lowered or "spend cap" in lowered:
+        return HTTPException(
+            status_code=503,
+            detail="AI is unavailable because the Google AI monthly spending cap was reached. Update the cap in Google AI Studio, then try again.",
+        )
+    return HTTPException(
+        status_code=503,
+        detail="AI has reached a usage limit. Please try again later.",
+    )
+
+
 def _call_gemini_rest(
     *,
     api_key: str,
@@ -651,6 +665,8 @@ def _call_gemini_rest(
             body = resp.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         err_body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+        if exc.code == 429:
+            raise _gemini_limit_error(err_body) from exc
         raise HTTPException(
             status_code=502,
             detail=f"Gemini API error ({exc.code}): {err_body[:300] or exc.reason}",
@@ -692,15 +708,20 @@ def _call_gemini_raw(
 
     if genai is not None and types is not None:
         sdk_schema = sdk_schema_builder() if sdk_schema_builder is not None else _build_sdk_response_schema()
-        return _call_gemini_sdk(
-            api_key=resolved_key,
-            model=resolved_model,
-            system_instruction=system_instruction,
-            prompt=prompt,
-            media_bytes=media_bytes,
-            mime_type=mime_type,
-            sdk_schema=sdk_schema,
-        )
+        try:
+            return _call_gemini_sdk(
+                api_key=resolved_key,
+                model=resolved_model,
+                system_instruction=system_instruction,
+                prompt=prompt,
+                media_bytes=media_bytes,
+                mime_type=mime_type,
+                sdk_schema=sdk_schema,
+            )
+        except Exception as exc:
+            if getattr(exc, "code", None) == 429:
+                raise _gemini_limit_error(str(getattr(exc, "message", "") or exc)) from exc
+            raise
 
     return _call_gemini_rest(
         api_key=resolved_key,
