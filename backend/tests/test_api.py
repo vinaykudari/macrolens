@@ -375,6 +375,31 @@ def test_gemini_rest_fallback_and_thinking_config(monkeypatch: pytest.MonkeyPatc
     assert sent_parts[1]["inlineData"]["mimeType"] == "image/jpeg"
     assert len(sent_parts[1]["inlineData"]["data"]) > 0
 
+    gemini_service.analyze_meal_photo(
+        image_bytes=b"\xff\xd8\xff\xe0fakejpeg", mime_type="image/jpeg", model="gemini-4-neon"
+    )
+    assert captured_requests[-1]["payload"]["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "high"}
+
+
+def test_neon_sdk_uses_high_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeModels:
+        def generate_content(self, **kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return type("Response", (), {"text": "{}"})()
+
+    class FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.models = FakeModels()
+
+    monkeypatch.setattr(gemini_service.genai, "Client", FakeClient)
+    gemini_service._call_gemini_sdk(
+        api_key="test", model="gemini-4-neon", system_instruction="test", prompt="test"
+    )
+    assert captured["model"] == "gemini-4-neon"
+    assert captured["config"].thinking_config.thinking_level.value == "HIGH"
+
 
 # ---------------------------------------------------------------------------
 # Integration tests: Auth, PIN, Cookie Session, Config, Meals, Dashboard

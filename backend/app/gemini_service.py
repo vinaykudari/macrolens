@@ -558,7 +558,9 @@ def _call_gemini_sdk(
         "response_schema": sdk_schema if sdk_schema is not None else _build_sdk_response_schema(),
         "temperature": 0.2,
     }
-    if model.lower().startswith("gemini-3") and hasattr(types, "ThinkingConfig"):
+    if model.lower() == "gemini-4-neon":
+        config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="high")
+    elif model.lower().startswith("gemini-3") and hasattr(types, "ThinkingConfig"):
         try:
             config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="minimal")
         except TypeError:
@@ -630,7 +632,9 @@ def _call_gemini_rest(
         "responseSchema": rest_schema if rest_schema is not None else GEMINI_REST_RESPONSE_SCHEMA,
         "temperature": 0.2,
     }
-    if model.lower().startswith("gemini-3"):
+    if model.lower() == "gemini-4-neon":
+        generation_config["thinkingConfig"] = {"thinkingLevel": "high"}
+    elif model.lower().startswith("gemini-3"):
         generation_config["thinkingConfig"] = {"thinkingLevel": "minimal"}
 
     parts: list[dict[str, Any]] = [{"text": prompt}]
