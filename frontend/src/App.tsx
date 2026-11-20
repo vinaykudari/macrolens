@@ -41,7 +41,6 @@ import {
   toTimeInputValue,
   normalizeIsoTimestamp,
 } from './utils/date';
-import { prepareMealImage } from './utils/image';
 
 interface ToastState {
   message: string;
@@ -214,7 +213,7 @@ export const App: React.FC = () => {
 
   // Global desktop drag-and-drop image capture
   useEffect(() => {
-    if (!user) return;
+    if (!user || snapOpen) return;
 
     const hasImageDrag = (e: DragEvent): boolean => {
       if (!e.dataTransfer) return false;
@@ -243,7 +242,7 @@ export const App: React.FC = () => {
       }
     };
 
-    const onDrop = async (e: DragEvent) => {
+    const onDrop = (e: DragEvent) => {
       if (!hasImageDrag(e)) return;
       e.preventDefault();
       dragDepthRef.current = 0;
@@ -251,8 +250,7 @@ export const App: React.FC = () => {
 
       const file = e.dataTransfer?.files?.[0];
       if (file && file.type.startsWith('image/')) {
-        const prepared = await prepareMealImage(file);
-        setDroppedFile(prepared);
+        setDroppedFile(file);
         setSnapInitialTab('photo');
         setSnapOpen(true);
       }
@@ -268,7 +266,7 @@ export const App: React.FC = () => {
       window.removeEventListener('dragleave', onDragLeave);
       window.removeEventListener('drop', onDrop);
     };
-  }, [user]);
+  }, [user, snapOpen]);
 
   const openSnapSheet = (tab: SnapInitialTab = 'photo') => {
     setDroppedFile(null);
@@ -294,8 +292,8 @@ export const App: React.FC = () => {
       setActiveTab('dashboard');
     }
     const mealDate = getLocalDateString(normalizeIsoTimestamp(meal.logged_at));
-    if (activeTab === 'logs' && mealDate !== selectedDate) setSelectedDate(mealDate);
-    await fetchDashboard(activeTab === 'logs' ? mealDate : selectedDate);
+    if (mealDate !== selectedDate) setSelectedDate(mealDate);
+    await fetchDashboard(mealDate);
     bumpRefresh();
     showToast(`Logged ${meal.meal_name}`, 'success');
   };

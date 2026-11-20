@@ -34,11 +34,13 @@ import {
   combineDateAndTimeToIso,
   getLocalDateString,
   formatLongDate,
+  formatShortDate,
   getTzOffsetMinutes,
   shiftDateString,
   toTimeInputValue,
 } from '../utils/date';
 import { prepareMealImage } from '../utils/image';
+import { readPhotoDate } from '../utils/photoDate';
 import { VoiceDictateButton } from './VoiceDictateButton';
 
 export type SnapInitialTab = 'photo' | 'describe' | 'manual';
@@ -153,6 +155,7 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
   const [logDate, setLogDate] = useState<string>(selectedDate);
   const [logTime, setLogTime] = useState<string>(() => toTimeInputValue());
   const [customDateTimeTouched, setCustomDateTimeTouched] = useState<boolean>(false);
+  const [photoDateApplied, setPhotoDateApplied] = useState(false);
 
   const [saving, setSaving] = useState<boolean>(false);
   const [quickSavingId, setQuickSavingId] = useState<string | null>(null);
@@ -160,6 +163,9 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
 
   const photoSaveIdRef = useRef<string | null>(null);
   const photoSavingRef = useRef(false);
+  const photoRequestRef = useRef(0);
+  const dateTimeEditedRef = useRef(false);
+  const photoDateRef = useRef<Date | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -173,12 +179,15 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
     setLogDate(selectedDate);
     setLogTime(toTimeInputValue());
     setCustomDateTimeTouched(selectedDate !== today);
+    dateTimeEditedRef.current = selectedDate !== today;
+    photoDateRef.current = null;
+    setPhotoDateApplied(false);
 
     if (initialFile) {
       setTab('photo');
-      setSelectedFile(initialFile);
-      setAnalysis(null);
+      void handleFileChosen(initialFile);
     }
+    return () => { photoRequestRef.current += 1; };
   }, [isOpen, initialTab, initialFile, selectedDate]);
 
   useEffect(() => {
@@ -223,6 +232,9 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
   }, [selectedFile]);
 
   const resetAll = () => {
+    photoRequestRef.current += 1;
+    photoDateRef.current = null;
+    setPhotoDateApplied(false);
     photoSaveIdRef.current = null;
     setSelectedFile(null);
     setPreviewUrl(null);
@@ -261,8 +273,33 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
     }
     setError(null);
     setAnalysis(null);
-    const prepared = await prepareMealImage(file);
+    const request = ++photoRequestRef.current;
+    photoSaveIdRef.current = null;
+    setSelectedFile(null);
+    if (photoDateRef.current && !dateTimeEditedRef.current) {
+      setLogDate(selectedDate);
+      setLogTime(toTimeInputValue());
+      setCustomDateTimeTouched(selectedDate !== getLocalDateString());
+    }
+    photoDateRef.current = null;
+    setPhotoDateApplied(false);
+    const [capturedAt, prepared] = await Promise.all([readPhotoDate(file), prepareMealImage(file)]);
+    if (request !== photoRequestRef.current) return;
+    if (capturedAt && !dateTimeEditedRef.current) {
+      photoDateRef.current = capturedAt;
+      setPhotoDateApplied(true);
+      setLogDate(getLocalDateString(capturedAt));
+      setLogTime(toTimeInputValue(capturedAt.toISOString()));
+      setCustomDateTimeTouched(true);
+    }
     setSelectedFile(prepared);
+  };
+
+  const markDateTimeEdited = () => {
+    dateTimeEditedRef.current = true;
+    photoDateRef.current = null;
+    setPhotoDateApplied(false);
+    setCustomDateTimeTouched(true);
   };
 
   const applyAnalysisResult = (
@@ -375,6 +412,7 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
   );
 
   const getLoggedAtPayload = (): string | undefined => {
+    if (photoDateRef.current) return photoDateRef.current.toISOString();
     const isToday = logDate === getLocalDateString();
     if (isToday && !customDateTimeTouched) {
       return undefined;
@@ -665,14 +703,14 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                 accept="image/*"
                 capture="environment"
                 className="is-hidden-input"
-                onChange={(e) => handleFileChosen(e.target.files?.[0])}
+                onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; void handleFileChosen(file); }}
               />
               <input
                 ref={galleryInputRef}
                 type="file"
                 accept="image/*"
                 className="is-hidden-input"
-                onChange={(e) => handleFileChosen(e.target.files?.[0])}
+                onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; void handleFileChosen(file); }}
               />
 
               {!previewUrl ? (
@@ -735,6 +773,15 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                       className="icon-btn preview-clear-btn"
                       aria-label="Choose another photo"
                       onClick={() => {
+                        photoRequestRef.current += 1;
+                        photoSaveIdRef.current = null;
+                        if (photoDateRef.current && !dateTimeEditedRef.current) {
+                          setLogDate(selectedDate);
+                          setLogTime(toTimeInputValue());
+                          setCustomDateTimeTouched(selectedDate !== getLocalDateString());
+                        }
+                        photoDateRef.current = null;
+                        setPhotoDateApplied(false);
                         setSelectedFile(null);
                         setPreviewUrl(null);
                       }}
@@ -799,7 +846,7 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
               </div>
 
               <details className="photo-options">
-                <summary>Date and time <span>Optional</span></summary>
+                <summary>Date and time <span>{photoDateApplied ? `Photo · ${formatShortDate(logDate)} ${logTime}` : 'Optional'}</span></summary>
               <div className="photo-options-content">
               <div className="form-grid-2">
                 <label className="field">
@@ -815,7 +862,7 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                     onChange={(e) => {
                       if (e.target.value) {
                         setLogDate(e.target.value);
-                        setCustomDateTimeTouched(true);
+                        markDateTimeEdited();
                       }
                     }}
                   />
@@ -832,7 +879,7 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                     value={logTime}
                     onChange={(e) => {
                       setLogTime(e.target.value);
-                      setCustomDateTimeTouched(true);
+                      markDateTimeEdited();
                     }}
                   />
                 </label>
@@ -906,7 +953,7 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                     onChange={(e) => {
                       if (e.target.value) {
                         setLogDate(e.target.value);
-                        setCustomDateTimeTouched(true);
+                        markDateTimeEdited();
                       }
                     }}
                   />
@@ -923,7 +970,7 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                     value={logTime}
                     onChange={(e) => {
                       setLogTime(e.target.value);
-                      setCustomDateTimeTouched(true);
+                      markDateTimeEdited();
                     }}
                   />
                 </label>
@@ -1243,7 +1290,7 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                     onChange={(e) => {
                       if (e.target.value) {
                         setLogDate(e.target.value);
-                        setCustomDateTimeTouched(true);
+                        markDateTimeEdited();
                       }
                     }}
                   />
@@ -1261,7 +1308,7 @@ export const SnapMealSheet: React.FC<SnapMealSheetProps> = ({
                     value={logTime}
                     onChange={(e) => {
                       setLogTime(e.target.value);
-                      setCustomDateTimeTouched(true);
+                      markDateTimeEdited();
                     }}
                   />
                 </label>
