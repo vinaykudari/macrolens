@@ -1556,6 +1556,9 @@ def test_dispatch_due_reminders_three_per_day_no_duplicates(
         )
         db.commit()
 
+        # 08:35 UTC is 00:35 Pacific, not the 08:30 breakfast slot.
+        assert notification_service.dispatch_due_reminders(db, datetime(2026, 11, 16, 8, 35, tzinfo=timezone.utc)) == 0
+
         # In November 2026, PST is UTC-8:
         # 08:35 PST on 2026-11-16 == 16:35 UTC -> Breakfast due
         assert notification_service.dispatch_due_reminders(db, datetime(2026, 11, 16, 16, 35, tzinfo=timezone.utc)) == 1
@@ -1579,6 +1582,12 @@ def test_dispatch_due_reminders_three_per_day_no_duplicates(
         # Next day 08:32 PST (2026-11-17 16:32 UTC) -> Breakfast fires again for new local day
         assert notification_service.dispatch_due_reminders(db, datetime(2026, 11, 17, 16, 32, tzinfo=timezone.utc)) == 1
         assert len(sent_events) == 4
+
+        # Summer Pacific time is PDT (UTC-7), and fires at the same local time.
+        assert notification_service.dispatch_due_reminders(db, datetime(2026, 7, 16, 8, 35, tzinfo=timezone.utc)) == 0
+        assert notification_service.dispatch_due_reminders(db, datetime(2026, 7, 16, 15, 35, tzinfo=timezone.utc)) == 1
+        assert "Breakfast" in sent_events[-1]["title"]
+        assert notification_service.dispatch_due_reminders(db, datetime(2026, 7, 16, 16, 35, tzinfo=timezone.utc)) == 0
 
     test_engine.dispose()
 

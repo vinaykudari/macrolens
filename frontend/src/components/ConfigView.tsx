@@ -47,6 +47,12 @@ const targetDraftFrom = (targets: MacroTargets): Record<keyof MacroTargets, stri
   carbs_g: String(targets.carbs_g), fat_g: String(targets.fat_g),
 });
 
+function describeReminderTime(value: string): string {
+  const [hours, minutes] = value.split(':').map(Number);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return value;
+  return `${hours % 12 || 12}:${String(minutes).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
+}
+
 interface ConfigViewProps {
   user: User;
   onConfigUpdated: (nextConfig: ConfigResponse) => void;
@@ -227,7 +233,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         );
       }
       const subPayload = await subscribeBrowserPush(vapid.public_key);
-      await apiClient.subscribePush(subPayload);
+      await apiClient.subscribePush({ ...subPayload, timezone: notifications.timezone || detectedTimezone });
 
       const updated = await apiClient.updateConfig({
         notifications: {
@@ -235,7 +241,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           breakfast_time: notifications.breakfast_time,
           lunch_time: notifications.lunch_time,
           dinner_time: notifications.dinner_time,
-          timezone: detectedTimezone,
+          timezone: notifications.timezone || detectedTimezone,
         },
       });
       setDeviceSubscribed(true);
@@ -245,7 +251,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         setNotifications((prev) => ({
           ...prev,
           enabled: true,
-          timezone: detectedTimezone,
+          timezone: notifications.timezone || detectedTimezone,
           active_subscriptions: Math.max(1, prev.active_subscriptions),
         }));
       }
@@ -271,7 +277,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
         const updated = await apiClient.updateConfig({
           notifications: {
             enabled: false,
-            timezone: detectedTimezone,
+            timezone: notifications.timezone || detectedTimezone,
           },
         });
         setDeviceSubscribed(false);
@@ -310,7 +316,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           breakfast_time: notifications.breakfast_time,
           lunch_time: notifications.lunch_time,
           dinner_time: notifications.dinner_time,
-          timezone: detectedTimezone,
+          timezone: notifications.timezone || detectedTimezone,
         },
       });
       if (updated.notifications) {
@@ -558,10 +564,20 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
               ? 'active device'
               : 'active devices'}
           </span>
-          <span className="source-badge">
+          <label className="reminder-timezone">
             <Globe size={12} />
-            <span>{notifications.timezone || detectedTimezone}</span>
-          </span>
+            <span>Time zone</span>
+            <select
+              className="input input-compact"
+              aria-label="Reminder time zone"
+              value={notifications.timezone || detectedTimezone}
+              onChange={(event) => setNotifications((prev) => ({ ...prev, timezone: event.target.value }))}
+            >
+              {[...new Set([notifications.timezone, 'America/Los_Angeles', detectedTimezone].filter(Boolean))].map((zone) => (
+                <option key={zone} value={zone}>{zone === 'America/Los_Angeles' ? 'Pacific Time (PST / PDT)' : zone}</option>
+              ))}
+            </select>
+          </label>
           {notifications.enabled && !deviceSubscribed && pushSupported && !needsIosHomeScreen && (
             <button
               type="button"
@@ -574,6 +590,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
           )}
         </div>
 
+        <p className="text-xs text-secondary">Reminder times use the selected time zone. Pacific Time adjusts automatically for daylight saving.</p>
         <div className="reminder-times-grid">
           <label className="field">
             <span className="field-label">Breakfast</span>
@@ -588,6 +605,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
                 }))
               }
             />
+            <span className="text-xs text-secondary">Breakfast: {describeReminderTime(notifications.breakfast_time)}</span>
           </label>
 
           <label className="field">
@@ -603,6 +621,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
                 }))
               }
             />
+            <span className="text-xs text-secondary">Lunch: {describeReminderTime(notifications.lunch_time)}</span>
           </label>
 
           <label className="field">
@@ -618,6 +637,7 @@ export const ConfigView: React.FC<ConfigViewProps> = ({
                 }))
               }
             />
+            <span className="text-xs text-secondary">Dinner: {describeReminderTime(notifications.dinner_time)}</span>
           </label>
         </div>
 
